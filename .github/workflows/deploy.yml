@@ -1,0 +1,73 @@
+name: CI/CD UmbracoSite to IIS
+
+on:
+  push:
+    branches:
+#git branch you want to trigger the deployment
+      - main  
+
+jobs:
+  build: #First Job
+#Ensure this points to your self-hosted runner
+    runs-on: self-hosted 
+#If you have set up any Secrets and Variables this is how you can get them
+    env:
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }} 
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+#Add .NET to PATH for current session
+      - name: Manually Add Default .NET Path to GitHub PATH
+        shell: powershell
+        run: |
+          echo "C:\dotnet" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8
+
+# Install .NET SDK (if not already installed in C:\dotnet)
+      - name: Install .NET SDK if not already installed
+        shell: powershell
+        run: |
+            if (-Not (Test-Path "C:\dotnet\dotnet.exe")) {
+                Write-Host ".NET SDK not found in C:\dotnet. Installing..."
+                Invoke-WebRequest -Uri https://dotnet.microsoft.com/download/dotnet/scripts/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+                .\dotnet-install.ps1 -InstallDir "C:\dotnet" -Version 8.0.406
+                [System.Environment]::SetEnvironmentVariable("DOTNET_ROOT", "C:\dotnet", "Machine")
+                [System.Environment]::SetEnvironmentVariable("Path", "C:\dotnet;$([System.Environment]::GetEnvironmentVariable('Path', 'Machine'))", "Machine")
+            } else {
+                Write-Host ".NET SDK already installed in C:\dotnet"
+            }
+  
+      - name: Verify .NET Installation
+        shell: powershell
+        run: dotnet --version
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+ #Publish the Project
+      - name: Build & Publish
+        run: dotnet publish -c Release -o ./publish
+
+      - name: Upload Artifact #we will download this on deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: umbraco-published
+          path: ./publish
+
+  deploy: #Second job
+    runs-on: self-hosted  # Runs on the IIS server same as bove
+
+    steps:
+      - name: Download Artifact #the uploaded files in the previous step
+        uses: actions/download-artifact@v4
+        with:
+          name: umbraco-published
+          path: C:\inetpub\wwwroot\testsite
+
+#Restart IIS to Apply Changes
+      - name: Restart IIS
+        shell: powershell
+        run: |
+          iisreset /restart
+          Write-Host "IIS restarted successfully!"
