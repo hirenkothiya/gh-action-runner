@@ -42,6 +42,10 @@ jobs:
         shell: powershell
         run: dotnet --version
 
+      - name: directory check
+        shell: powershell
+        run : pwd
+    
       - name: Restore dependencies
         run: dotnet restore
 
